@@ -1,0 +1,309 @@
+# Importing all the necessary libraries
+import pandas as pd                            # For data manupilation
+import numpy as np                             # For numerical computations
+import seaborn as sns                          # For visualization
+import matplotlib.pyplot as plt                # For visualization
+df = pd.read_csv("creditcard.csv")  # Importing the dataset
+df.head()  # Checking the first 5 rows of the dataset
+df.tail()  # Checking the last 5 rows of the dataset
+df.info() # Checking the non-null count and data types of different features 
+
+start_date = pd.to_datetime("2013-09-01") # Choosing the start date as 1st sept-2013
+
+df["Time"] = pd.to_timedelta(df["Time"],unit="s") # Converting the original time feature to seconds
+
+# Adding the above seconds to start date & to make it a datetime feature which shows transactions every second
+df["Time"] = df["Time"] + start_date  
+
+df.info() # Checking the datatypes 
+
+df.shape # Checking the shape of the dataset
+df.isnull().sum() / len(df) # Checking the missing value percentage
+
+# Check the value-counts of both the negative and positive class
+class_percent_distribution = (df["Class"].value_counts() / len(df))*100  
+
+# Plotting the bar graph to visualize the distibution
+class_percent_distribution.plot(kind="bar",color="green",fontsize =12)
+
+corr = df.corr()                   # To identify the correlation between features
+plt.figure(figsize=(20,20))        # Fixing the figure or image size  
+sns.heatmap(corr, annot=True,cmap = "inferno")  # Visualizing the correlation using the heatmap
+
+# Importing the sweetviz library
+import sweetviz as sv
+# Understanding the overall data in a detailed report form
+report = sv.analyze(df,target_feat="Class") 
+report.show_notebook()
+
+# Adding a new column called "Day_Phases" to understand and gauge the transactions happening at different phases of the day
+df["Day_Phases"] = df["Time"].apply(lambda x: 
+    "Morning" if 6 <= x.hour < 12 else
+    "Afternoon" if 12 <= x.hour < 18 else
+    "Evening" if 18 <= x.hour < 24 else
+    "Night"
+)
+
+df.head()  #Checking the first 5 rows for the newly added column
+
+# Checking the number of transactions occurring at different phases of the day 
+df["Day_Phases"].value_counts().plot(kind="bar",color="red",fontsize = 12) # Visualizing the bar graph
+plt.title("Transactions during different phases of Day")
+plt.xlabel("Different Phases of Day")
+plt.ylabel("Number of Transactions")
+
+# Calculate the elapsed time in seconds from the minimum timestamp in the 'Time' column
+df['Time_elapsed'] = (df['Time'] - df['Time'].min()).dt.total_seconds()     
+
+df['Hour'] = df['Time'].dt.hour         # Extracting hour from the Time feature
+df['Minute'] = df['Time'].dt.minute     # Extracting minute from the Time feature
+df['Second'] = df['Time'].dt.second     # Extracting second from the Time feature 
+
+df.head()  # Checking the first 5 rows
+df.tail()  # Checking the last 5 rows
+
+df.info()   # Checking the datatypes for the newly added features
+
+# Transforming the 'Hour' feature into sine and cosine components.
+# This is done to capture the cyclical nature of hours in a day.
+# 'Hour_sin' and 'Hour_cos' represent the sine and cosine of the hour,
+# allowing the model to learn patterns based on the circular nature of time.
+
+
+df['Hour_sin'] = np.sin(2 * np.pi * df['Hour'] / 24)    # Sine transformation to capture the cyclical behavior 
+df['Hour_cos'] = np.cos(2 * np.pi * df['Hour'] / 24)    # Cosine transformation to capture the cyclical behavior 
+
+df.head()  # Checking the first 5 rows for newly added features
+df.tail()     # Checking the last 5 rows for newly added features
+df.info()        # Checking the datatypes for the newly added features 
+
+# Drop the original time-related features
+df = df.drop(['Time', 'Time_elapsed', 'Hour', 'Minute', 'Second'], axis=1)
+
+df.info()    # Checking the datatypes for the remaining features
+
+def data_type(dataset):            # Creating a custom function to identify numerical and categorical features
+    numerical = []
+    categorical = []
+    for i in dataset.columns:
+        if dataset[i].dtype in ["int64", "float64"]:
+            numerical.append(i)
+        else:
+            categorical.append(i)
+    return numerical, categorical
+
+numerical, categorical = data_type(df)
+
+print(f" Numerical Columns : {numerical}")          # Printing the numerical features
+print(f" Categorical Columns : {categorical}")      # Printing the categorical features
+
+binary = [col for col in numerical if df[col].nunique() == 2]   # Identifying binary features to stop them from scaling
+numerical = [col for col in numerical if col not in binary]     # Removing binary features from numerical features
+print(f" Numerical Columns : {numerical}")        # Printing the numerical features
+print(f" Binary Columns : {binary}")              # Printing the binary features  
+
+from sklearn.preprocessing import StandardScaler    # Importing the standard scaler
+
+def encoding(dataset, categorical):               # Creating a custom function to encode the categorical features
+    
+    for i in categorical:
+        dataset[i] = dataset[i].astype("category")
+        dataset[i] = dataset[i].cat.codes
+    return dataset
+
+df = encoding(df, categorical)
+
+# Now scale the data
+def feature_Scaling(dataset,numerical):
+    scaled_data = StandardScaler()
+    dataset[numerical] = scaled_data.fit_transform(dataset[numerical])
+    return dataset
+
+df = feature_Scaling(df,numerical)
+
+df.head()            # Checking the first 5 rows of the scaled data
+df.tail()            # Checking the last 5 rows of the scaled data
+
+X = df.drop(columns=["Class"])    # Drop the 'Class' column to get features
+y = df["Class"]                   # Target variable
+
+count_0 = y.value_counts()[0]     # Number of instances of class 0 (negative class)
+count_1 = y.value_counts()[1]     # Number of instances of class 1 (positive class)
+
+# Calculating the average number of instances across both classes
+# This average will be used for resampling strategies
+average_count = int((count_0 + count_1) / 2)
+
+# Importing necessary libraries for handling class imbalance 
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline
+from imblearn.under_sampling import RandomUnderSampler
+
+# Define a random state for reproducibility
+random_state = 42
+
+# Creating a resampling pipeline to address class imbalance
+resampling_pipeline = Pipeline([
+    # Applying SMOTE (Synthetic Minority Over-sampling Technique) to oversample the minority class
+    # `sampling_strategy={1: average_count}` specifies the target number of samples for the minority class
+    ('oversampler', SMOTE(sampling_strategy={1: average_count}, random_state = random_state)),
+    
+    # Applying RandomUnderSampler to undersample the majority class
+    # `sampling_strategy={0: average_count}` specifies the target number of samples for the majority class    
+    ('undersampler', RandomUnderSampler(sampling_strategy={0: average_count}, random_state = random_state))
+])
+
+# Applying the resampling pipeline to balance the classes in the dataset
+X_resampled, y_resampled = resampling_pipeline.fit_resample(X, y)
+
+# Verify the new class distribution
+print(y_resampled.value_counts())
+
+# Assuming X is a DataFrame and y is a Series
+df = pd.concat([X_resampled, y_resampled], axis=1)
+
+df = df.reset_index(drop=True)
+
+# Display the first 5 rows of the DataFrame
+df.head(5)
+
+# Importing Principal Component Analysis (PCA) from scikit-learn
+# Used for Dimensionality reduction
+from sklearn.decomposition import PCA
+
+features = df.drop(columns=["Class"])        # Drop the 'Class' column to get features
+target = df["Class"]                         # target variable
+
+pca = PCA()       # Creating a instance of the class PCA
+pca.fit(features) # Fitting the features to the created PCA object
+
+# Plot explained variance ratio
+explained_variance = pca.explained_variance_ratio_
+# Calculate the cumulative explained variance
+cumulative_explained_variance = explained_variance.cumsum()
+
+# Plotting the cumulative explained variance
+plt.figure(figsize=(10, 6))
+plt.plot(cumulative_explained_variance, marker='o')      # Plot with markers
+plt.xlabel('Number of Principal Components')
+plt.ylabel('Cumulative Explained Variance')
+plt.title('Explained Variance vs. Number of Components')
+plt.grid(True) # Add grid for better readability
+plt.show()     # Display the plot
+
+# Obtain the eigenvalues (explained variance) for each principal component
+eigenvalues = pca.explained_variance_
+
+
+# Apply Kaiser’s Criterion: Retain components with eigenvalues greater than 1
+components_to_retain = sum(eigenvalues > 1)
+
+# Print the number of components to retain
+print(f"Number of components to retain (Kaiser’s Criterion): {components_to_retain}")
+
+# Initialize PCA with 13 components
+pca = PCA(n_components=13)
+
+# Fit and transform the data
+pca_features = pca.fit_transform(features)
+
+print(features.shape)           # Print the shape of the original features before PCA
+print(pca_features.shape)       # Print the shape of the features after applying PCA
+
+from sklearn.model_selection import train_test_split   # To split the dataset into train and test 
+
+# Split the dataset into train and keep 20% of data for validating purpose
+x_train,x_test,y_train,y_test = train_test_split(pca_features,target,test_size=0.2,stratify=target,random_state=42)
+
+print(x_train.shape)    # Check the shape of the train data
+print(x_test.shape)     # Check the shape of the test data
+
+from sklearn.ensemble import RandomForestClassifier    # Import the Random Forest model from scikit-learn
+
+random_model = RandomForestClassifier()   # Creating a instance of the class RandomForestClassifier
+random_model.fit(x_train,y_train)         # Fitting the train data to the created classifier object
+
+y_pred = random_model.predict(x_test)   # Use the model to predict on the test data
+
+# Importing the evluation metrics
+from sklearn.metrics import classification_report,confusion_matrix, ConfusionMatrixDisplay
+
+# Print the classification report to check the recall, precison, accuracy of the model
+print(classification_report(y_test,y_pred))   
+
+# Display the confusion matrix 
+ConfusionMatrixDisplay(confusion_matrix(y_test,y_pred)).plot()
+
+from sklearn.model_selection import GridSearchCV    # Import Gridseaerch to find best set of hyper parameters
+
+#parameters = {"min_samples_split" : [10,20], "max_depth" : [None, 10, 20, 30],
+            #  "n_estimators" : [100,200,300], "bootstrap" : [True, False]}
+
+parameters = {                               # Parameter grid 
+    "max_depth": [None, 10, 20],
+    "n_estimators": [100, 200]}
+
+# GridSerachCV model using metric as accuracy and cv as 3
+grid_search = GridSearchCV(estimator=random_model, param_grid=parameters, scoring= "accuracy", cv=3, n_jobs = -1, verbose=2)
+
+grid_search.fit(x_train,y_train)                       # Fitting the model on training data
+print(f"Best parameters: {grid_search.best_params_}")  # Printing the best parameters
+print(f"Best score: {grid_search.best_score_}")        # Printing the best score/accuracy 
+
+# Tuning the model with the newly selected hyper parameters
+tuned_model = RandomForestClassifier(n_estimators=200, max_depth=None)  
+
+tuned_model.fit(x_train,y_train)      # Fit the tuned model on the training data
+
+y_pred_tuned = tuned_model.predict(x_test)         # Use the model to predict on the test data
+
+# Print the classification report to check the recall, precison, accuracy of the model
+print(classification_report(y_test,y_pred_tuned))
+
+# Display the confusion matrix
+ConfusionMatrixDisplay(confusion_matrix(y_test,y_pred_tuned)).plot()
+
+from tensorflow.keras.models import Sequential        # Import the sequential model
+from tensorflow.keras.layers import Dense, Dropout    # Import the layers 
+from tensorflow.keras.utils import to_categorical     # Import the to_categorical attribute
+
+
+# Convert labels to categorical
+y_train = to_categorical(y_train)
+y_test = to_categorical(y_test)
+
+# Define the model
+model = Sequential()
+model.add(Dense(64, input_dim=x_train.shape[1], activation='relu'))  # Input layer + hidden layer
+model.add(Dropout(0.3))  # Dropout for regularization
+model.add(Dense(32, activation='relu'))  # Additional hidden layer
+model.add(Dropout(0.3))
+model.add(Dense(2, activation='softmax'))  # Output layer for binary classification
+
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+model.summary()  # check the number of trainable parameters
+
+# Train the model
+model.fit(x_train, y_train, epochs=10, batch_size=32, validation_data=(x_test, y_test))
+
+# Evaluate the model
+loss, accuracy = model.evaluate(x_test, y_test)
+print(f'Accuracy: {accuracy * 100:.2f}%')
+
+import sklearn
+print(sklearn.__version__)
+
+import joblib        # Import the joblib module
+
+# Saving the model
+joblib.dump(tuned_model,"Random_Forest.pkl")
+
+# Saving the model
+joblib.dump(pca, "Dimensionality_Reduction.pkl")
+
+# Saving the model
+joblib.dump(model, "Deep_Learning.pkl")
+
+
